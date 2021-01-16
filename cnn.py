@@ -1,15 +1,14 @@
+#https://github.com/openai/spinningup/blob/master/spinup/examples/pytorch/pg_math/1_simple_pg.py
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torchvision
 from torch.distributions.categorical import Categorical
-
 import numpy as np
 import gym
 import os.path
-import random
-import math
+
 
 #making the env
 env = gym.make("CartPole-v0")
@@ -37,7 +36,7 @@ if (os.path.isfile(path)):
     net.load_state_dict(torch.load(path))
 
 #Binary Cross Entropy Loss function; heard that BCE is the best for choosing between 2 diff actions
-#SGD optimizer; need to do more research on an optimizer other than SGD
+#Adams optimizer, good for noisy problems
 crit = nn.BCELoss()
 opt = optim.Adam(net.parameters(), lr=.001)
 
@@ -89,7 +88,6 @@ def train_one(batch_size=5000):
 
             # the weight for each logprob(a|s) is R(tau)
             batch_weights += [ep_ret] * ep_len
-
             finished = True   # finished this episode
 
             #Reset the vars
@@ -113,6 +111,7 @@ def train(epis=450):
         print('episode: %3d \t loss: %.3f \t return: %.3f \t ep_len: %.3f' %
             (i, batch_loss, np.mean(batch_rets), np.mean(batch_lens)))
         print(batch_lens[len(batch_lens) - 1])
-
-train()
-torch.save(net.state_dict(), path)
+if __name__ == "__main__":
+    train()
+    torch.save(net.state_dict(), path)
+env.close()

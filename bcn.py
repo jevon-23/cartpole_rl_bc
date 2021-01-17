@@ -158,10 +158,12 @@ Inputs:
 def train_bc(expert_obs, expert_loss, batch_size=256):
     loss_list = []  # A list of the loss on each step
     counter = 0 # Index for expert_obs and expert_loss
+    print(batch_size)
 
     while counter < len(expert_obs):
         total_loss = 0
         val = 0 # used for calculating the loss at the current step
+
         for _ in range(batch_size):
 
             if (counter == len(expert_obs)):
@@ -230,7 +232,7 @@ def train(checkpoint=False):
 
     #Training the bc_net based on the expert data
     print("training bc_net from rl_net.")
-    train_bc(expert_obs, expert_acts, expert_loss)
+    train_bc(expert_obs, expert_loss)
     print("finished training bc_net.")
 
     #Testing the bc network

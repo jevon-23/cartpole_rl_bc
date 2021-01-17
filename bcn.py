@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import numpy as np
 import os.path
+import os
 import cnn
 import gym
 from torch.distributions.categorical import Categorical
-
+import sys
 
 #making the env
 env = gym.make("CartPole-v0")
@@ -15,7 +15,9 @@ action_space_size = env.action_space.n  # Discrete 2
 observation_space_size = env.observation_space.shape[0] # Box (4, )
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+is_checking = sys.argv[1] == 't'    # If a 't' is passed in, that means that we are trying using learning based on checkpoint
 
+""" 4 layered network."""
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
@@ -38,19 +40,23 @@ class Net(nn.Module):
 bc_net_path = './bcnet.pth'
 bc_net = Net()
 
-if (os.path.isfile(bc_net_path)):
+if (os.path.isfile(bc_net_path) and not is_checking):
     print('previous BC net is found, loading in')
-    bc_net.load_state_dict(torch.load(bc_net))
+    try:
+        bc_net.load_state_dict(torch.load(bc_net))
+    except RuntimeError:
+        print('could not load in previous bc_net')
+
 #Loading in the RL net
 rl_net_path = './cnet.pth'
 rl_net = cnn.Net()
-
-try:
-    print('attempting to load in RL net\n')
-    rl_net.load_state_dict(torch.load(rl_net_path))
-    print('loaded in RL net')
-except RuntimeError:
-    print('could not load in previous dictionary, ./cnet.pth may not exist\n')
+if (not is_checking):
+    try:
+        print('attempting to load in RL net\n')
+        rl_net.load_state_dict(torch.load(rl_net_path))
+        print('loaded in RL net')
+    except RuntimeError:
+        print('could not load in previous dictionary, ./cnet.pth may not exist\n')
 
 #Bincary Cross Entropy Function, Adam optimizer for our net
 crit = nn.MSELoss()
@@ -60,7 +66,7 @@ opt = optim.Adam(bc_net.parameters(), lr=.001)
 Not training the rl_net, but we are getting 'expert data' from the rl_net
 
 Inputs:
-    net: rl_net, the net that the behavioral cloning net will be learning from
+    network: rl_net, the net that the behavioral cloning net will be learning from
     batch_size: how many iterations for the episode
     episodes: How many episodes we want to run this net
 
@@ -72,65 +78,92 @@ Returns:
 def run_RL_net(network, episodes, batch_size=256):
     batch_obs = []          # for observations
     batch_acts = []         # for actions
-    batch_weights = []      # for R(tau) weighting in policy gradient
-    batch_loss = []
+    batch_loss = []         # for the loss
 
     #Reset episode specific variables, all return values of step()
     obs = env.reset()   # First obs, gets updated as we go on
     done = False    # Checking to see if we are done
-    ep_rew = [] # list of rew throughout episode
-    finished = False    # finished this episode
-    for counter in range(episodes):
+
+    for _ in range(episodes):
         while True:
-            # if (not finished):
-            #     env.render()    # Render env
             batch_obs.append(obs.copy())    # saving the observation
 
             #Taking a step w/ the nn
             act = cnn.get_action(torch.as_tensor(obs, dtype=torch.float))
+            out = network(torch.as_tensor(obs, dtype=torch.float))
 
-            batch_loss.append(network(torch.as_tensor(obs, dtype=torch.float)))
-            obs, rew, done, _ = env.step(act)
+            obs, _, done, _ = env.step(act)
 
-            #Saving the action and the reward
+            #Saving the action and the loss
             batch_acts.append(act)
-            ep_rew.append(rew)
+            batch_loss.append(out)
 
             if done:
-                #Saving the details about the episode
-                ep_ret, ep_len = sum(ep_rew), len(ep_rew)
-
-                # the weight for each logprob(a|s) is R(tau)
-                batch_weights += [ep_ret] * ep_len
-
-                finished = True   # finished this episode
 
                 #Reset the vars
-                obs, done, ep_rew = env.reset(), False, []
+                obs, done = env.reset(), False
 
                 if len(batch_obs) > batch_size:
                     break
 
-        b_loss = cnn.compute_loss(obs=torch.as_tensor(batch_obs, dtype=torch.float32),
-            act=torch.as_tensor(batch_acts, dtype=torch.int32),
-            weight=torch.as_tensor(batch_weights, dtype=torch.float32)
-        )
-        # batch_loss.append(b_loss)
-        # print("finished episode ", counter, "of rl_net")
-    # env.reset()
     return batch_obs, batch_acts, batch_loss
 
-def train_bc(expert_obs, expert_acts, expert_loss, batch_size=256):
-    loss_list = []
-    test_loss = []
+"""
+Creates a rl_network from cnn, and stores the networks in ./networks
+Inputs:
+    path: name of file that we want to store networks in. Will be stored as ./networks/path[int].pth
+    episodes: how many iterations we will run
 
-    counter = 0
+Outputs:
+    all_batch_obs: the observations from all of the networks
+    all_batch_acts: the actions from all of the networks
+    all_batch_loss: the loss from all of the networks
+ """
+def run_rl_net_check_points(episodes, check_points, path='nets', batch_size=256):
+
+    #Creating a directory to hold the network that we have, I might have to change this if we want to save multiple networks
+    os.mkdir("./network") if not os.path.isdir('./network') else None
+    new_path = "./network/" + path  # Making it so that we are putting the files that we are creating in the network folder
+
+    #Creating the network and running it with the checkpoints
+    trained_nets = cnn.train(new_path, True, check_points, episodes)
+    print('\n ran the neural networks. Networks have been stored. files = ', trained_nets)
+
+    #Storing batch_obs, batch_acts, and batch_loss
+    all_batch_obs, all_batch_acts, all_batch_loss = [], [], []
+
+    for net_index in range(len(trained_nets)):
+
+        #Loading in the network from the file
+        curr_net = cnn.Net()
+        cp = torch.load(trained_nets[net_index])
+        curr_net.load_state_dict(cp['model_state_dict'])
+        curr_net.eval()
+
+        #Running the net, Saving the next states the network took for expert data
+        batch_obs, batch_acts, batch_loss = run_RL_net(curr_net, 10)
+        all_batch_obs += batch_obs
+        all_batch_acts += batch_acts
+        all_batch_loss += batch_loss
+
+    return all_batch_obs, all_batch_acts, all_batch_loss
+
+"""
+Training the behavioral cloning network on the expert data. Observations for the states, loss for the crit functions.
+Inputs:
+    expert_obs: the expert observations that we will be training the bc on
+    expert_acts: The expert acts that we will be training the bc on
+    expert_loss: The expert loss that wew ill be training the bc on
+"""
+def train_bc(expert_obs, expert_loss, batch_size=256):
+    loss_list = []  # A list of the loss on each step
+    counter = 0 # Index for expert_obs and expert_loss
 
     while counter < len(expert_obs):
         total_loss = 0
-        val = 0
+        val = 0 # used for calculating the loss at the current step
         for _ in range(batch_size):
-            # if (expert_obs[obs_ind] == 50):
+
             if (counter == len(expert_obs)):
                 break
 
@@ -139,7 +172,6 @@ def train_bc(expert_obs, expert_acts, expert_loss, batch_size=256):
             exp = expert_loss[counter]  # what the expert did in this state
             out = bc_net(torch.as_tensor(curr_obs, dtype=torch.float))  # what we did in this state
 
-            # print("out = ", out, "exp = ", exp)
             loss = crit(out, exp)
             total_loss += loss.item()
             opt.zero_grad()
@@ -152,19 +184,17 @@ def train_bc(expert_obs, expert_acts, expert_loss, batch_size=256):
         loss_list.append(total_loss / val)
         print("step ", counter, " of bc. Loss for this step = ", (total_loss / val))
 
-        x = expert_obs[observation_space_size]
-        y = expert_loss[observation_space_size]
-
-        # out = bc_net(x)
-        # test_loss.append(crit(out, y).item())
 """ One episode of the network after being trained """
-def test_bc(batch_size=100):
+def test_bc(batch_size=50):
+
+    #Setting episode specific vars
     obs = env.reset()
     done = False
     finished = False
     counter = 0
     ep_rew = []
-    # batch_obs = []
+
+    #Running simulation
     while True:
         if (not finished):
             env.render()
@@ -189,21 +219,28 @@ def test_bc(batch_size=100):
 
 
 """ Trainnig the behavioral cloning network """
-def train(epis=2):
+def train(checkpoint=False):
+    # Obtaining the expert data
+    if not checkpoint:
+        print("Getting expert data from rl_net without checkpoints")
+        expert_obs, expert_acts, expert_loss = run_RL_net(rl_net, 60)
+    else:
+        print("Getting expert data from rl_net with checkpoints")
+        expert_obs, expert_acts, expert_loss = run_rl_net_check_points(path='first_nets', check_points=5, episodes=50)
 
-    print("running rl_net for expert data.")
-    expert_obs, expert_acts, expert_loss = run_RL_net(rl_net, 60)
+    #Training the bc_net based on the expert data
     print("training bc_net from rl_net.")
-
     train_bc(expert_obs, expert_acts, expert_loss)
-    print("finished training bc_net, now testing bc.")
+    print("finished training bc_net.")
 
+    #Testing the bc network
+    print("now testing bc.")
     test_bc()
     print("finished tesitng bc")
     torch.save(bc_net.state_dict(), bc_net_path)
 
 if __name__ == "__main__":
-    train()
+    train(checkpoint=True) if is_checking else train()
 
     # torch.save(rl_net.state_dict(), rl_net_path)
 env.close()

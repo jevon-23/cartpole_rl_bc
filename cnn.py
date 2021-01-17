@@ -145,6 +145,7 @@ Outputs:
 def train(epis, save_checkpoints, check_paths, check_points):
     counter = 0 # Used for the file that we will store the checkpoints in
 
+    print(epis, check_points)
     check_points = make_check_points(epis, check_points) if save_checkpoints else None
     print(check_points)
     files = []  # The files where the checkpoints are saved

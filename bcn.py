@@ -14,8 +14,8 @@ env = gym.make("CartPole-v0")
 action_space_size = env.action_space.n  # Discrete 2
 observation_space_size = env.observation_space.shape[0] # Box (4, )
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-is_checking = sys.argv[1] == 't'    # If a 't' is passed in, that means that we are trying using learning based on checkpoint
+if len(sys.argv) == 2:
+    is_checking = sys.argv[1] == 't'    # If a 't' is passed in, that means that we are trying using learning based on checkpoint
 
 """ 4 layered network."""
 class Net(nn.Module):
@@ -126,7 +126,7 @@ def run_rl_net_check_points(episodes, check_points, path='nets', batch_size=256)
     new_path = "./network/" + path  # Making it so that we are putting the files that we are creating in the network folder
 
     #Creating the network and running it with the checkpoints
-    trained_nets = cnn.train(new_path, True, check_points, episodes)
+    trained_nets = cnn.train(epis=episodes, save_checkpoints=True, check_paths=new_path, check_points=check_points)
     print('\n ran the neural networks. Networks have been stored. files = ', trained_nets)
 
     #Storing batch_obs, batch_acts, and batch_loss
@@ -226,7 +226,7 @@ def train(checkpoint=False):
         expert_obs, expert_acts, expert_loss = run_RL_net(rl_net, 60)
     else:
         print("Getting expert data from rl_net with checkpoints")
-        expert_obs, expert_acts, expert_loss = run_rl_net_check_points(path='first_nets', check_points=5, episodes=50)
+        expert_obs, expert_acts, expert_loss = run_rl_net_check_points(episodes=100, check_points=5,  path='first_nets')
 
     #Training the bc_net based on the expert data
     print("training bc_net from rl_net.")

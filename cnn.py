@@ -16,7 +16,9 @@ action_space_size = env.action_space.n  # Discrete 2
 observation_space_size = env.observation_space.shape[0] # Box (4, )
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-""" 2 layered network. """
+"""
+2 layered network.
+"""
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
@@ -32,28 +34,36 @@ class Net(nn.Module):
 
 net = Net()
 path = './cnet.pth'
-if (os.path.isfile(path) and sys.argv[1] != 't'):
-    print('loaded prev neunet')
-    net.load_state_dict(torch.load(path))
+# valp = len(sys.argv) == 2
+# if (os.path.isfile(path) and __name__ == 'main'):
+#     print('loaded prev neunet')
+#     net.load_state_dict(torch.load(path))
 
 #Binary Cross Entropy Loss function; heard that BCE is the best for choosing between 2 diff actions
 #Adams optimizer, good for noisy problems
 crit = nn.BCELoss()
 opt = optim.Adam(net.parameters(), lr=.001)
 
-"""Getting the neural net, making it type categorical because those are used in discrete action spaces"""
-def get_policy(obs):
-    return Categorical(logits=net(obs))
+"""
+Getting the neural net, making it type categorical because those are used in discrete action spaces.
+"""
+def get_policy(network, obs):
 
-"""make action selection function (outputs int actions, sampled from policy)"""
-def get_action(obs):
-    return get_policy(obs).sample().item()
+    return Categorical(logits=network(obs))
 
-"""Compute the loss for the current step """
-def compute_loss(obs, act, weight):
+"""
+Make action selection function (outputs int actions, sampled from policy.
+"""
+def get_action(network, obs):
+    return get_policy(network, obs).sample().item()
+
+"""
+Compute the loss for the current step.
+"""
+def compute_loss(network, obs, act, weight):
     #via: https://stackoverflow.com/questions/54635355/what-does-log-prob-do, I think this only available for Categorical
     #log_prob returns the log of the probability density/mass function evaluated at the given sample value.
-    logprob = get_policy(obs).log_prob(act)
+    logprob = get_policy(network, obs).log_prob(act)
     return -(logprob * weight).mean()
 
 """
@@ -63,7 +73,7 @@ Outputs:
     batch_rets: The sum of the rewards that were produced in the episode
     batch_lens: The length of the episode
 """
-def train_one(batch_size=5000):
+def train_one(network, batch_size=5000):
     batch_obs = []          # for observations
     batch_acts = []         # for actions
     batch_weights = []      # for weighting in policy gradient
@@ -77,13 +87,13 @@ def train_one(batch_size=5000):
     finished = False    # finished this episode
 
     while True:
-        if (not finished):
+        if (not finished): # and not valp):
             env.render()    # Render env
 
         batch_obs.append(obs.copy())    # saving the observation
 
         #Taking a step w/ the nn
-        act = get_action(torch.as_tensor(obs, dtype=torch.float))
+        act = get_action(network, torch.as_tensor(obs, dtype=torch.float))
         obs, rew, done, _ = env.step(act)
 
         #Saving the action and the reward
@@ -105,9 +115,9 @@ def train_one(batch_size=5000):
 
             if len(batch_obs) > batch_size:
                 break
-
+    opt = optim.Adam(network.parameters(), lr=.001)
     opt.zero_grad()
-    batch_loss = compute_loss(obs=torch.as_tensor(batch_obs, dtype=torch.float32),
+    batch_loss = compute_loss(network=network, obs=torch.as_tensor(batch_obs, dtype=torch.float32),
         act=torch.as_tensor(batch_acts, dtype=torch.int32),
         weight=torch.as_tensor(batch_weights, dtype=torch.float32)
     )
@@ -126,14 +136,33 @@ Outputs:
 
 def make_check_points(epis, check_points):
 
+    # rv = []
+    # counter = 1
+    # for i in range(check_points):
+    #     rv.append(counter * (epis // check_points) - 1)
+    #     counter += 1
+    # return rv
+
+    # bad = 10 - check_points  # what bad episodes we will be saving
+    bad = check_points
+    # good = epis - check_points
+
+    good = epis - 10 + check_points
+    # what good episodes we will be saving
     rv = []
-    counter = 1
-    for i in range(check_points):
-        rv.append(counter * (epis // check_points) - 1)
-        counter += 1
+
+    #Getting bad checkpoints
+    for x in range(bad):
+        rv.append(x)
+
+    #Getting good checkpoints
+    for x in range(good, epis):
+        rv.append(x)
+
     return rv
 
-""" Trains the network
+"""
+Trains the network.
 Inputs:
     epis: Number of episodes that we will learn from
     save_checkpoints: True if we want to create checkpoints, false otherwise
@@ -144,7 +173,7 @@ Outputs:
 """
 def train(epis, save_checkpoints, check_paths, check_points):
     counter = 0 # Used for the file that we will store the checkpoints in
-
+    network = Net()
     print(epis, check_points)
     check_points = make_check_points(epis, check_points) if save_checkpoints else None
     print(check_points)
@@ -152,7 +181,7 @@ def train(epis, save_checkpoints, check_paths, check_points):
 
     for i in range(epis):
 
-        batch_loss, batch_rets, batch_lens = train_one()    # Train network
+        batch_loss, batch_rets, batch_lens = train_one(network)    # Train network
 
         #If save_checkpoints is true, that meanst that the other parameters are set
         if ((save_checkpoints) and (i in check_points)):

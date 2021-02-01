@@ -18,8 +18,11 @@ Inputs:
     good_checks: how many good checkpoints do we want to save
 """
 def make_check_points2(epis, good_checks):
-    bad = 10 - good_checks  # what bad episodes we will be saving
-    good = epis - good_checks
+    bad = good_checks
+    # good = epis - check_points
+
+    good = epis - 10 + good_checks
+
     # what good episodes we will be saving
     rv = []
 
@@ -67,6 +70,7 @@ def processCLI():
 
 def main():
     episodes = processCLI()
+    bc_net_path = 'network0.pth'
     if (episodes == -1):
         print('usage: main.py { number of episodes }')
         return -1
@@ -81,13 +85,13 @@ def main():
 
         #Training the bc_net based on the expert data
         print("training bc_net from rl_net.")
-        bc_loss = bcn.train_bc(expert_obs, expert_loss, network_path='network'+'0'+'.pth')
+        bc_loss = bcn.train_bc(expert_obs, expert_loss, network_path=bc_net_path)
         print("finished training bc_net.")
 
         #Testing the bc network
         print("now testing bc.")
 
-        ep_rew = bcn.test_bc()
+        ep_rew = bcn.test_bc(network_path=bc_net_path)
         print("finished tesitng bc")
 
         all_loss.append(ep_rew)

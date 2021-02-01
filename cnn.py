@@ -188,7 +188,7 @@ def train(epis, save_checkpoints, check_paths, check_points):
             cp_place = check_paths + str(counter) + '.pth'
             try:
                 torch.save({
-        'model_state_dict': net.state_dict(),
+        'model_state_dict': network.state_dict(),
         }, cp_place)
                 counter += 1
                 print('path created at ', cp_place)

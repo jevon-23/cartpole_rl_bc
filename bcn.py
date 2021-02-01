@@ -167,7 +167,16 @@ test_loss = []
 def train_bc(expert_obs, expert_loss, batch_size=256, network_path=''):
     loss_list = []  # A list of the loss on each step
     counter = 0 # Index for expert_obs and expert_loss
-    # print(batch_size)
+
+    theNet = Net()
+
+    if (os.path.isfile(network_path)):
+        print('previous BC net is found, loading in')
+        theNet.load_state_dict(torch.load(network_path))
+
+        print('could not load in previous bc_net')
+
+    opt = optim.Adam(theNet.parameters(), lr=.001)
 
     while counter < len(expert_obs):
         total_loss = 0
@@ -181,16 +190,7 @@ def train_bc(expert_obs, expert_loss, batch_size=256, network_path=''):
             #Updating our bc_net, comparing our output to the rl_net
             curr_obs = expert_obs[counter]   # current observation
             exp = expert_loss[counter]  # what the expert did in this state
-
-            bc_net = Net()
-
-            if (os.path.isfile(network_path) and not is_checking):
-                print('previous BC net is found, loading in')
-                bc_net.load_state_dict(torch.load(bc_net))
-
-                print('could not load in previous bc_net')
-
-            out = bc_net(torch.as_tensor(curr_obs, dtype=torch.float))  # what we did in this state
+            out = theNet(torch.as_tensor(curr_obs, dtype=torch.float))  # what we did in this state
             loss = crit(out, exp)
             total_loss += loss.item()
             opt.zero_grad()
@@ -208,6 +208,8 @@ def train_bc(expert_obs, expert_loss, batch_size=256, network_path=''):
         # output = bc_net(torch.as_tensor(x, dtype=torch.float))
         # test_loss.append(crit(output, y).item())
         print("step ", counter, " of bc. Loss for this step = ", (total_loss / val))
+    torch.save(theNet.state_dict(), network_path)
+
     return loss_list
 
 #Printing the loss for the bc_net, with the loss for the rl_net
@@ -223,7 +225,15 @@ def plot(expert_loss, test_loss, ep_rew):
     plt.show()
 
 """ One episode of the network after being trained """
-def test_bc(batch_size=25):
+def test_bc(network_path='', batch_size=25):
+
+    theNet = Net()
+
+    if (os.path.isfile(network_path)):
+        print('previous BC net is found, loading in')
+        theNet.load_state_dict(torch.load(network_path))
+
+        print('could not load in previous bc_net')
 
     #Setting episode specific vars
     obs = env.reset()
@@ -240,7 +250,7 @@ def test_bc(batch_size=25):
         else:
             finished = False
 
-        act = Categorical(logits=bc_net(torch.as_tensor(obs, dtype=torch.float)))
+        act = Categorical(logits=theNet(torch.as_tensor(obs, dtype=torch.float)))
         act = act.sample().item()
         obs, rew, done, _ = env.step(act)
         ep_rew.append(rew)
